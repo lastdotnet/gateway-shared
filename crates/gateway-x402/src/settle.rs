@@ -78,7 +78,7 @@ impl PaymentSettler {
             .rpc_url
             .parse()
             .map_err(|err| GatewayError::Payment(format!("Invalid RPC URL: {err}")))?;
-        let provider = ProviderBuilder::new().wallet(wallet).on_http(rpc_url);
+        let provider = ProviderBuilder::new().wallet(wallet).connect_http(rpc_url);
 
         let contract = IPermit2::new(self.permit2_address, provider);
         let permit = IPermit2::PermitTransferFrom {

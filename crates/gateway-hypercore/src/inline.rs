@@ -2,7 +2,7 @@ use std::{str::FromStr, time::{SystemTime, UNIX_EPOCH}};
 
 use alloy::{
     dyn_abi::Eip712Domain,
-    primitives::{Address, PrimitiveSignature, keccak256},
+    primitives::{Address, Signature as PrimitiveSignature, keccak256},
     sol_types::{SolValue, eip712_domain},
 };
 use gateway_common::error::{GatewayError, GatewayResult};
