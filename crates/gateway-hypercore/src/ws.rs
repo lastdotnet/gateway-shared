@@ -80,8 +80,7 @@ impl HyperCoreWs {
             },
         };
 
-        let sub_msg =
-            serde_json::to_string(&subscription).map_err(GatewayError::Serialization)?;
+        let sub_msg = serde_json::to_string(&subscription).map_err(GatewayError::Serialization)?;
 
         write
             .send(Message::Text(sub_msg.into()))
