@@ -48,7 +48,8 @@ mod tests {
         let usd = crate::token_amount_to_usd(U256::from(1_000_000u64), 6);
         assert_eq!(usd, Decimal::ONE);
 
-        let amount = crate::usd_to_token_amount(Decimal::from_str("2.5").expect("valid decimal literal"), 6);
+        let amount =
+            crate::usd_to_token_amount(Decimal::from_str("2.5").expect("valid decimal literal"), 6);
         assert_eq!(amount, U256::from(2_500_000u64));
 
         assert!(crate::TOKEN_REGISTRY.contains_key("USDXL_HYPEREVM"));

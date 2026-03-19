@@ -31,12 +31,8 @@ impl HyperCoreWs {
             const MAX_RETRIES: u32 = 10;
 
             loop {
-                match Self::run_subscription(
-                    ws_url.clone(),
-                    gateway_address.clone(),
-                    tx.clone(),
-                )
-                .await
+                match Self::run_subscription(ws_url.clone(), gateway_address.clone(), tx.clone())
+                    .await
                 {
                     Ok(_) => {
                         debug!("WebSocket subscription ended gracefully");
@@ -84,9 +80,7 @@ impl HyperCoreWs {
             },
         };
 
-        let sub_msg = serde_json::to_string(&subscription).map_err(|e| {
-            GatewayError::Serialization(e)
-        })?;
+        let sub_msg = serde_json::to_string(&subscription).map_err(GatewayError::Serialization)?;
 
         write
             .send(Message::Text(sub_msg.into()))
@@ -106,7 +100,9 @@ impl HyperCoreWs {
 
             match msg {
                 Message::Text(text) => {
-                    if let Ok(WsEvent::UserEvents { data, .. }) = serde_json::from_str::<WsEvent>(&text) {
+                    if let Ok(WsEvent::UserEvents { data, .. }) =
+                        serde_json::from_str::<WsEvent>(&text)
+                    {
                         for user_event in data.events {
                             if let UserEvent::SpotTransfer(transfer) = user_event
                                 && transfer.destination == gateway_address

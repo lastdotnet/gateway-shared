@@ -29,12 +29,10 @@ impl AccountService {
 
         let account_id = AccountId(row.try_get::<Uuid, _>("id")?);
 
-        sqlx::query(
-            "INSERT INTO credit_balances (account_id, balance_usd) VALUES ($1, 0)",
-        )
-        .bind(account_id.0)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("INSERT INTO credit_balances (account_id, balance_usd) VALUES ($1, 0)")
+            .bind(account_id.0)
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
 
@@ -42,12 +40,10 @@ impl AccountService {
     }
 
     pub async fn get_account(&self, id: AccountId) -> GatewayResult<Account> {
-        let row = sqlx::query(
-            "SELECT id, created_at, updated_at FROM accounts WHERE id = $1",
-        )
-        .bind(id.0)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row = sqlx::query("SELECT id, created_at, updated_at FROM accounts WHERE id = $1")
+            .bind(id.0)
+            .fetch_optional(&self.pool)
+            .await?;
 
         let Some(row) = row else {
             return Err(GatewayError::ModelNotFound(format!("account {}", id)));

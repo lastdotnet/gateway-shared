@@ -119,9 +119,11 @@ mod tests {
         let gateway_error: GatewayError = serde_error.into();
 
         assert!(matches!(gateway_error, GatewayError::Serialization(_)));
-        assert!(gateway_error
-            .to_string()
-            .starts_with("Serialization error:"));
+        assert!(
+            gateway_error
+                .to_string()
+                .starts_with("Serialization error:")
+        );
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use crate::types::{PaymentRequiredHeader, PaymentRequirement, ResourceInfo};
-use gateway_common::{usd_to_token_amount, Chain, GatewayResult, TOKEN_REGISTRY};
+use gateway_common::{Chain, GatewayResult, TOKEN_REGISTRY, usd_to_token_amount};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 
@@ -130,7 +130,7 @@ mod tests {
             .expect("build failed");
 
         assert_eq!(header.x402_version, 2);
-        assert!(header.accepts.len() > 0);
+        assert!(!header.accepts.is_empty());
         assert_eq!(header.resource.url, "https://api.example.com");
     }
 

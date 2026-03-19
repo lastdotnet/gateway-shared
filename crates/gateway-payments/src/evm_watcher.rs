@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use alloy::primitives::{keccak256, Address, B256, U256};
+use alloy::primitives::{Address, B256, U256, keccak256};
 use alloy::providers::{Provider, ProviderBuilder, WsConnect};
 use alloy::rpc::types::Filter;
-use gateway_common::{token_amount_to_usd, GatewayError, GatewayResult, TOKEN_REGISTRY};
+use gateway_common::{GatewayError, GatewayResult, TOKEN_REGISTRY, token_amount_to_usd};
 use serde_json::Value;
 use tokio_stream::StreamExt;
 
@@ -47,22 +47,24 @@ impl EvmDepositWatcher {
         credit_service: Arc<CreditService>,
     ) -> GatewayResult<()> {
         let ws = WsConnect::new(self.rpc_url.clone());
-        let provider = ProviderBuilder::new()
-            .on_ws(ws)
-            .await
-            .map_err(|err| GatewayError::Provider {
-                provider: "EVM Watcher".to_string(),
-                message: format!("Failed to connect websocket provider: {err}"),
-            })?;
+        let provider =
+            ProviderBuilder::new()
+                .connect_ws(ws)
+                .await
+                .map_err(|err| GatewayError::Provider {
+                    provider: "EVM Watcher".to_string(),
+                    message: format!("Failed to connect websocket provider: {err}"),
+                })?;
 
         let filter = build_transfer_filter(self.gateway_address, &self.watched_token_addresses);
-        let subscription = provider
-            .subscribe_logs(&filter)
-            .await
-            .map_err(|err| GatewayError::Provider {
-                provider: "EVM Watcher".to_string(),
-                message: format!("Failed to subscribe logs: {err}"),
-            })?;
+        let subscription =
+            provider
+                .subscribe_logs(&filter)
+                .await
+                .map_err(|err| GatewayError::Provider {
+                    provider: "EVM Watcher".to_string(),
+                    message: format!("Failed to subscribe logs: {err}"),
+                })?;
 
         let mut stream = subscription.into_stream();
 
@@ -89,7 +91,10 @@ impl EvmDepositWatcher {
             }
 
             let from_address = format!("{:#x}", parsed.from);
-            let Some(account_id) = deposit_service.find_account_by_evm_address(&from_address).await? else {
+            let Some(account_id) = deposit_service
+                .find_account_by_evm_address(&from_address)
+                .await?
+            else {
                 continue;
             };
 
@@ -105,12 +110,7 @@ impl EvmDepositWatcher {
                 .await?;
 
             let _ = deposit_service
-                .credit_deposit(
-                    &credit_service,
-                    account_id,
-                    deposit_id,
-                    amount_usd,
-                )
+                .credit_deposit(&credit_service, account_id, deposit_id, amount_usd)
                 .await?;
         }
 
@@ -243,7 +243,10 @@ mod tests {
     fn parse_topic_address_extracts_last_20_bytes() {
         let topic = "0x0000000000000000000000001111111111111111111111111111111111111111";
         let parsed = parse_topic_address(topic).expect("topic should parse");
-        assert_eq!(format!("{:#x}", parsed), "0x1111111111111111111111111111111111111111");
+        assert_eq!(
+            format!("{:#x}", parsed),
+            "0x1111111111111111111111111111111111111111"
+        );
     }
 
     #[test]

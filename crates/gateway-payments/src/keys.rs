@@ -191,8 +191,8 @@ mod tests {
 
     #[test]
     fn parse_key_extracts_prefix() {
-        let parsed = parse_key("gw-deadbeef_0123456789abcdef0123456789abcdef")
-            .expect("key should parse");
+        let parsed =
+            parse_key("gw-deadbeef_0123456789abcdef0123456789abcdef").expect("key should parse");
         assert_eq!(parsed.prefix, "deadbeef");
         assert_eq!(parsed.secret, "0123456789abcdef0123456789abcdef");
     }
@@ -229,8 +229,8 @@ mod tests {
 
     #[test]
     fn parse_key_normalizes_case() {
-        let parsed = parse_key("gw-DEADBEEF_ABCDEFABCDEFABCDEFABCDEFABCDEF12")
-            .expect("key should parse");
+        let parsed =
+            parse_key("gw-DEADBEEF_ABCDEFABCDEFABCDEFABCDEFABCDEF12").expect("key should parse");
         assert_eq!(parsed.prefix, "deadbeef");
         assert_eq!(parsed.secret, "abcdefabcdefabcdefabcdefabcdef12");
     }
@@ -264,10 +264,8 @@ mod tests {
 
     #[test]
     fn parsed_key_equality_works() {
-        let left = parse_key("gw-deadbeef_0123456789abcdef0123456789abcdef")
-            .expect("valid key");
-        let right = parse_key("gw-deadbeef_0123456789abcdef0123456789abcdef")
-            .expect("valid key");
+        let left = parse_key("gw-deadbeef_0123456789abcdef0123456789abcdef").expect("valid key");
+        let right = parse_key("gw-deadbeef_0123456789abcdef0123456789abcdef").expect("valid key");
         assert_eq!(left, right);
     }
 
@@ -311,6 +309,8 @@ mod tests {
 
         let key_id = Uuid::new_v4();
         let _ = service.revoke_key(key_id).await;
-        let _ = service.validate_key("gw-deadbeef_0123456789abcdef0123456789abcdef").await;
+        let _ = service
+            .validate_key("gw-deadbeef_0123456789abcdef0123456789abcdef")
+            .await;
     }
 }

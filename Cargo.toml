@@ -38,7 +38,7 @@ tokio-stream = "0.1"
 async-trait = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 rust_decimal = { version = "1", features = ["db-postgres"] }
-time = { version = "0.3", features = ["serde"] }
+time = { version = "0.3.47", features = ["serde"] }
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 hex = "0.4"
 async-stream = "0.3"
