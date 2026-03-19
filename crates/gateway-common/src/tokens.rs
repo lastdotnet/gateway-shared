@@ -1,6 +1,6 @@
 use std::{collections::HashMap, str::FromStr, sync::LazyLock};
 
-use alloy::primitives::{address, Address, U256};
+use alloy::primitives::{Address, U256, address};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -143,10 +143,10 @@ pub fn usd_to_token_amount(usd: Decimal, decimals: u8) -> U256 {
 mod tests {
     use std::{panic, str::FromStr};
 
-    use alloy::primitives::{address, U256};
+    use alloy::primitives::{U256, address};
     use rust_decimal::Decimal;
 
-    use super::{token_amount_to_usd, usd_to_token_amount, Chain, TOKEN_REGISTRY};
+    use super::{Chain, TOKEN_REGISTRY, token_amount_to_usd, usd_to_token_amount};
 
     #[test]
     fn token_registry_contains_expected_entries_with_expected_metadata() {

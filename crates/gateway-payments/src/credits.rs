@@ -293,22 +293,22 @@ mod tests {
 
     #[test]
     fn check_and_reserve_negative_amount_error_message() {
-        let message = GatewayError::Payment("Estimated cost cannot be negative".to_string())
-            .to_string();
+        let message =
+            GatewayError::Payment("Estimated cost cannot be negative".to_string()).to_string();
         assert!(message.contains("Estimated cost cannot be negative"));
     }
 
     #[test]
     fn debit_positive_error_message_matches_expected_text() {
-        let message = GatewayError::Payment("Debit amount must be positive".to_string())
-            .to_string();
+        let message =
+            GatewayError::Payment("Debit amount must be positive".to_string()).to_string();
         assert!(message.contains("Debit amount must be positive"));
     }
 
     #[test]
     fn credit_positive_error_message_matches_expected_text() {
-        let message = GatewayError::Payment("Credit amount must be positive".to_string())
-            .to_string();
+        let message =
+            GatewayError::Payment("Credit amount must be positive".to_string()).to_string();
         assert!(message.contains("Credit amount must be positive"));
     }
 
@@ -339,17 +339,22 @@ mod tests {
         let account = AccountId(Uuid::new_v4());
 
         let result = service
-            .debit(account, None, Decimal::new(100, 0), "test", "r3", "overspend")
+            .debit(
+                account,
+                None,
+                Decimal::new(100, 0),
+                "test",
+                "r3",
+                "overspend",
+            )
             .await;
-        if let Err(err) = result {
-            if let GatewayError::InsufficientCredits {
-                required,
-                available,
-            } = err
-            {
-                assert_eq!(required, Decimal::new(100, 0));
-                assert!(available >= Decimal::ZERO);
-            }
+        if let Err(GatewayError::InsufficientCredits {
+            required,
+            available,
+        }) = result
+        {
+            assert_eq!(required, Decimal::new(100, 0));
+            assert!(available >= Decimal::ZERO);
         }
     }
 }

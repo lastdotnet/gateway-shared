@@ -1,6 +1,4 @@
-use crate::types::{
-    ClearinghouseState, SignedAction, SpotClearinghouseState, api_url_for_network,
-};
+use crate::types::{ClearinghouseState, SignedAction, SpotClearinghouseState, api_url_for_network};
 use gateway_common::error::{GatewayError, GatewayResult};
 use reqwest::Client;
 use serde::de::DeserializeOwned;

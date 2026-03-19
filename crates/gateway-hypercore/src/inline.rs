@@ -1,4 +1,7 @@
-use std::{str::FromStr, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::{
     dyn_abi::Eip712Domain,
@@ -11,9 +14,9 @@ use rust_decimal::Decimal;
 use crate::{
     client::HyperCoreClient,
     types::{
-        HyperCorePaymentAction, HyperCorePaymentHeader, HyperCorePaymentPayload,
-        HyperCorePaymentRequirement, HyperCoreSettlementResult, SendAssetAction, SignedAction,
-        CLOCK_SKEW_TOLERANCE_MS, HyperCoreSignature, chain_id_for_network,
+        CLOCK_SKEW_TOLERANCE_MS, HyperCorePaymentAction, HyperCorePaymentHeader,
+        HyperCorePaymentPayload, HyperCorePaymentRequirement, HyperCoreSettlementResult,
+        HyperCoreSignature, SendAssetAction, SignedAction, chain_id_for_network,
         hyperliquid_chain_for_network, signature_chain_id_for_network,
     },
 };
@@ -134,7 +137,8 @@ fn validate_transfer_correctness(
         )));
     }
 
-    let destination = parse_hex_address(&action.destination, "Invalid HyperCore destination address")?;
+    let destination =
+        parse_hex_address(&action.destination, "Invalid HyperCore destination address")?;
     let pay_to = parse_hex_address(&requirement.pay_to, "Invalid HyperCore payTo address")?;
     if destination != pay_to {
         return Err(GatewayError::Payment(format!(
@@ -309,7 +313,10 @@ fn send_asset_signing_hash(
     Ok(keccak256(digest_bytes))
 }
 
-fn send_asset_struct_hash(hyperliquid_chain: &str, action: &HyperCorePaymentAction) -> alloy::primitives::B256 {
+fn send_asset_struct_hash(
+    hyperliquid_chain: &str,
+    action: &HyperCorePaymentAction,
+) -> alloy::primitives::B256 {
     let items = (
         keccak256(SEND_ASSET_PRIMARY_TYPE),
         keccak256(hyperliquid_chain),
@@ -360,15 +367,16 @@ fn parse_hex_address(value: &str, error: &str) -> GatewayResult<Address> {
 }
 
 fn parse_decimal(value: &str, field: &str) -> GatewayResult<Decimal> {
-    Decimal::from_str(value)
-        .map_err(|_| GatewayError::Payment(format!("Invalid {field}: {value}")))
+    Decimal::from_str(value).map_err(|_| GatewayError::Payment(format!("Invalid {field}: {value}")))
 }
 
 fn token_symbol(token: &str) -> GatewayResult<&str> {
     token
         .split_once(':')
         .map(|(symbol, _)| symbol)
-        .ok_or_else(|| GatewayError::Payment(format!("Invalid HyperCore token identifier: {token}")))
+        .ok_or_else(|| {
+            GatewayError::Payment(format!("Invalid HyperCore token identifier: {token}"))
+        })
 }
 
 fn current_time_ms() -> GatewayResult<u64> {

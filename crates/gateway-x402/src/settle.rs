@@ -43,7 +43,12 @@ pub struct PaymentSettler {
 }
 
 impl PaymentSettler {
-    pub fn new(rpc_url: String, private_key: String, chain_id: u64, permit2_address: Address) -> Self {
+    pub fn new(
+        rpc_url: String,
+        private_key: String,
+        chain_id: u64,
+        permit2_address: Address,
+    ) -> Self {
         Self {
             rpc_url,
             private_key,
@@ -216,7 +221,9 @@ mod tests {
             )
             .await;
 
-        assert!(matches!(result, Err(GatewayError::Payment(msg)) if msg == "Invalid signature format"));
+        assert!(
+            matches!(result, Err(GatewayError::Payment(msg)) if msg == "Invalid signature format")
+        );
     }
 
     #[tokio::test]
@@ -242,7 +249,9 @@ mod tests {
             )
             .await;
 
-        assert!(matches!(result, Err(GatewayError::Payment(msg)) if msg == "Invalid signature length (expected 65 bytes)"));
+        assert!(
+            matches!(result, Err(GatewayError::Payment(msg)) if msg == "Invalid signature length (expected 65 bytes)")
+        );
     }
 
     #[tokio::test]
@@ -270,7 +279,9 @@ mod tests {
             )
             .await;
 
-        assert!(matches!(result, Err(GatewayError::Payment(msg)) if msg == "Invalid permit2 owner address"));
+        assert!(
+            matches!(result, Err(GatewayError::Payment(msg)) if msg == "Invalid permit2 owner address")
+        );
     }
 
     #[tokio::test]
@@ -298,6 +309,8 @@ mod tests {
             )
             .await;
 
-        assert!(matches!(result, Err(GatewayError::Payment(msg)) if msg == "Invalid signature format"));
+        assert!(
+            matches!(result, Err(GatewayError::Payment(msg)) if msg == "Invalid signature format")
+        );
     }
 }

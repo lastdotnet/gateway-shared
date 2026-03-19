@@ -37,11 +37,12 @@ impl ReplayProtector {
         .await?
         .is_some();
 
-        if found
-            && let Some(redis) = &self.redis
-        {
+        if found && let Some(redis) = &self.redis {
             let mut conn = redis.clone();
-            if let Err(err) = conn.sadd::<_, _, usize>(USED_PAYMENTS_SET_KEY, payment_key).await {
+            if let Err(err) = conn
+                .sadd::<_, _, usize>(USED_PAYMENTS_SET_KEY, payment_key)
+                .await
+            {
                 warn!(%err, payment_key, "failed to backfill replay key into redis");
             }
         }
@@ -66,7 +67,10 @@ impl ReplayProtector {
 
         if let Some(redis) = &self.redis {
             let mut conn = redis.clone();
-            if let Err(err) = conn.sadd::<_, _, usize>(USED_PAYMENTS_SET_KEY, &record.payment_key).await {
+            if let Err(err) = conn
+                .sadd::<_, _, usize>(USED_PAYMENTS_SET_KEY, &record.payment_key)
+                .await
+            {
                 warn!(%err, payment_key = %record.payment_key, "failed to record replay key in redis");
             }
         }
@@ -145,8 +149,7 @@ mod tests {
             token: Some("0x2222222222222222222222222222222222222222".to_string()),
             amount_raw: Some("1000000".to_string()),
             tx_hash: Some(
-                "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                    .to_string(),
+                "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
             ),
         }
     }
@@ -194,7 +197,8 @@ mod tests {
             .await
             .expect("local db required for ignored test");
         let protector = ReplayProtector::new(pool, None);
-        let key = ReplayProtector::permit2_key("0x1111111111111111111111111111111111111111", "1000");
+        let key =
+            ReplayProtector::permit2_key("0x1111111111111111111111111111111111111111", "1000");
 
         protector
             .mark_used(test_record(&key))

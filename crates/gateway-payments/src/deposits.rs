@@ -74,7 +74,11 @@ impl DepositService {
             .await
     }
 
-    pub async fn get_deposits(&self, account_id: AccountId, limit: i64) -> GatewayResult<Vec<Deposit>> {
+    pub async fn get_deposits(
+        &self,
+        account_id: AccountId,
+        limit: i64,
+    ) -> GatewayResult<Vec<Deposit>> {
         let rows = sqlx::query(
             "SELECT id, account_id, chain, tx_hash, token_address, amount_raw::text AS amount_raw, \
              amount_usd::text AS amount_usd, status, created_at \
@@ -88,7 +92,10 @@ impl DepositService {
         rows.into_iter()
             .map(|row| {
                 Ok(Deposit {
-                    amount_usd: parse_decimal_field(&row.try_get::<String, _>("amount_usd")?, "amount_usd")?,
+                    amount_usd: parse_decimal_field(
+                        &row.try_get::<String, _>("amount_usd")?,
+                        "amount_usd",
+                    )?,
                     id: row.try_get("id")?,
                     account_id: AccountId(row.try_get("account_id")?),
                     chain: row.try_get("chain")?,
@@ -102,7 +109,10 @@ impl DepositService {
             .collect()
     }
 
-    pub async fn find_account_by_evm_address(&self, evm_address: &str) -> GatewayResult<Option<AccountId>> {
+    pub async fn find_account_by_evm_address(
+        &self,
+        evm_address: &str,
+    ) -> GatewayResult<Option<AccountId>> {
         let row = sqlx::query("SELECT account_id FROM deposit_addresses WHERE evm_address = $1")
             .bind(evm_address)
             .fetch_optional(&self.pool)

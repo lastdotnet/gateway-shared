@@ -1,6 +1,6 @@
 use crate::types::{EIP3009Authorization, PaymentSignatureHeader};
 use alloy::primitives::{Address, U256};
-use gateway_common::{token_amount_to_usd, GatewayError, GatewayResult, TOKEN_REGISTRY};
+use gateway_common::{GatewayError, GatewayResult, TOKEN_REGISTRY, token_amount_to_usd};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -452,10 +452,12 @@ mod tests {
             .expect("verification should return result");
 
         assert!(!result.valid);
-        assert!(result
-            .invalidation_reason
-            .expect("reason should be present")
-            .contains("Invalid x402 version"));
+        assert!(
+            result
+                .invalidation_reason
+                .expect("reason should be present")
+                .contains("Invalid x402 version")
+        );
     }
 
     #[test]
@@ -478,10 +480,12 @@ mod tests {
             .expect("verification should return result");
 
         assert!(!result.valid);
-        assert!(result
-            .invalidation_reason
-            .expect("reason should be present")
-            .contains("Invalid network"));
+        assert!(
+            result
+                .invalidation_reason
+                .expect("reason should be present")
+                .contains("Invalid network")
+        );
     }
 
     #[test]
@@ -580,10 +584,12 @@ mod tests {
             .expect("verification should return result");
 
         assert!(!result.valid);
-        assert!(result
-            .invalidation_reason
-            .expect("reason should be present")
-            .contains("Permit2 authorization expired"));
+        assert!(
+            result
+                .invalidation_reason
+                .expect("reason should be present")
+                .contains("Permit2 authorization expired")
+        );
     }
 
     #[test]
@@ -607,10 +613,12 @@ mod tests {
             .expect("verification should return result");
 
         assert!(!result.valid);
-        assert!(result
-            .invalidation_reason
-            .expect("reason should be present")
-            .contains("Permit2 spender mismatch"));
+        assert!(
+            result
+                .invalidation_reason
+                .expect("reason should be present")
+                .contains("Permit2 spender mismatch")
+        );
     }
 
     #[test]
@@ -629,10 +637,12 @@ mod tests {
             .expect("verification should return result");
 
         assert!(!result.valid);
-        assert!(result
-            .invalidation_reason
-            .expect("reason should be present")
-            .contains("Permit2 token mismatch"));
+        assert!(
+            result
+                .invalidation_reason
+                .expect("reason should be present")
+                .contains("Permit2 token mismatch")
+        );
     }
 
     #[test]
