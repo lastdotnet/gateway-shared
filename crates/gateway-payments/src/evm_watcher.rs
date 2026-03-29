@@ -199,7 +199,7 @@ fn parse_topic_address(topic: &str) -> Option<Address> {
 
 fn parse_u256(data: &str) -> Option<U256> {
     let bytes = alloy::hex::decode(data).ok()?;
-    Some(U256::from_be_slice(&bytes))
+    U256::try_from_be_slice(&bytes)
 }
 
 #[cfg(test)]
