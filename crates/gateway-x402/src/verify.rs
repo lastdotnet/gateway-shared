@@ -320,7 +320,8 @@ fn token_decimals(token_address: Address) -> Option<u8> {
 }
 
 fn parse_address(value: &str, error: &str) -> GatewayResult<Address> {
-    value.parse::<Address>().map_err(|_| GatewayError::Payment(error.to_string()))
+    let normalized = value.strip_prefix("0x").unwrap_or(value);
+    Address::from_str(normalized).map_err(|_| GatewayError::Payment(error.to_string()))
 }
 
 fn invalid_result(

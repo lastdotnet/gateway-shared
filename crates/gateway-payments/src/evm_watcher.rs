@@ -188,18 +188,18 @@ fn parse_b256(value: &str) -> Option<B256> {
 }
 
 fn parse_topic_address(topic: &str) -> Option<Address> {
-    let bytes = alloy::hex::decode(topic).ok()?;
-    if bytes.len() != 32 {
+    let normalized = topic.strip_prefix("0x").unwrap_or(topic);
+    if normalized.len() != 64 {
         return None;
     }
 
-    let address_bytes: [u8; 20] = bytes[12..32].try_into().ok()?;
-    Some(Address::from(address_bytes))
+    let address_hex = &normalized[24..64];
+    parse_address(&format!("0x{address_hex}"))
 }
 
 fn parse_u256(data: &str) -> Option<U256> {
-    let bytes = alloy::hex::decode(data).ok()?;
-    Some(U256::from_be_slice(&bytes))
+    let normalized = data.strip_prefix("0x").unwrap_or(data);
+    U256::from_str_radix(normalized, 16).ok()
 }
 
 #[cfg(test)]
@@ -214,7 +214,7 @@ mod tests {
     }
 
     fn transfer_topic_word(addr: Address) -> String {
-        format!("0x{:0>64}", alloy::hex::encode(addr.as_slice()))
+        format!("0x{:0>64}", hex::encode(addr.as_slice()))
     }
 
     #[test]
