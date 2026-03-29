@@ -346,7 +346,7 @@ fn primitive_signature(signature: &HyperCoreSignature) -> GatewayResult<Primitiv
 }
 
 fn decode_signature_component(value: &str, name: &str) -> GatewayResult<[u8; 32]> {
-    let bytes = hex::decode(value.strip_prefix("0x").unwrap_or(value))
+    let bytes = alloy::hex::decode(value)
         .map_err(|_| GatewayError::Payment(format!("Invalid signature {name}")))?;
 
     if bytes.len() != 32 {
@@ -362,8 +362,9 @@ fn decode_signature_component(value: &str, name: &str) -> GatewayResult<[u8; 32]
 }
 
 fn parse_hex_address(value: &str, error: &str) -> GatewayResult<Address> {
-    let normalized = value.strip_prefix("0x").unwrap_or(value);
-    Address::from_str(normalized).map_err(|_| GatewayError::Payment(error.to_string()))
+    value
+        .parse::<Address>()
+        .map_err(|_| GatewayError::Payment(error.to_string()))
 }
 
 fn parse_decimal(value: &str, field: &str) -> GatewayResult<Decimal> {

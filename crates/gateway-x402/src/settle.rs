@@ -151,12 +151,13 @@ impl PaymentSettler {
 }
 
 fn parse_address(value: &str, error: &str) -> GatewayResult<Address> {
-    let normalized = value.strip_prefix("0x").unwrap_or(value);
-    Address::from_str(normalized).map_err(|_| GatewayError::Payment(error.to_string()))
+    value
+        .parse::<Address>()
+        .map_err(|_| GatewayError::Payment(error.to_string()))
 }
 
 fn parse_signature(signature_hex: &str) -> GatewayResult<Vec<u8>> {
-    let bytes = hex::decode(signature_hex.strip_prefix("0x").unwrap_or(signature_hex))
+    let bytes = alloy::hex::decode(signature_hex)
         .map_err(|_| GatewayError::Payment("Invalid signature format".to_string()))?;
 
     if bytes.len() != 65 {
