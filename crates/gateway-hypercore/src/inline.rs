@@ -362,7 +362,9 @@ fn decode_signature_component(value: &str, name: &str) -> GatewayResult<[u8; 32]
 }
 
 fn parse_hex_address(value: &str, error: &str) -> GatewayResult<Address> {
-    value.parse::<Address>().map_err(|_| GatewayError::Payment(error.to_string()))
+    value
+        .parse::<Address>()
+        .map_err(|_| GatewayError::Payment(error.to_string()))
 }
 
 fn parse_decimal(value: &str, field: &str) -> GatewayResult<Decimal> {

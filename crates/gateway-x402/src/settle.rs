@@ -151,7 +151,9 @@ impl PaymentSettler {
 }
 
 fn parse_address(value: &str, error: &str) -> GatewayResult<Address> {
-    value.parse::<Address>().map_err(|_| GatewayError::Payment(error.to_string()))
+    value
+        .parse::<Address>()
+        .map_err(|_| GatewayError::Payment(error.to_string()))
 }
 
 fn parse_signature(signature_hex: &str) -> GatewayResult<Vec<u8>> {
