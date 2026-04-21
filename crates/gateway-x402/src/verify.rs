@@ -7,7 +7,9 @@ use alloy::{
 use gateway_common::{GatewayError, GatewayResult, TOKEN_REGISTRY, token_amount_to_usd};
 use rust_decimal::Decimal;
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
@@ -20,9 +22,17 @@ pub struct VerificationResult {
     pub invalidation_reason: Option<String>,
 }
 
+/// Stateful verifier for x402 payments.
+///
+/// The `used_nonces` store is an `Arc<Mutex<HashSet>>` so that `Clone` gives a
+/// new handle pointing at the *same* set — callers that clone this verifier
+/// (e.g. Axum `State`) share nonce state across requests within one process.
+/// For multi-process deployments, replace the in-memory set with a Redis store.
+#[derive(Clone)]
 pub struct PaymentVerifier {
     gateway_address: Address,
     accepted_tokens: Vec<Address>,
+    used_nonces: Arc<Mutex<HashSet<String>>>,
 }
 
 impl PaymentVerifier {
@@ -30,6 +40,7 @@ impl PaymentVerifier {
         Self {
             gateway_address,
             accepted_tokens,
+            used_nonces: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -430,6 +441,29 @@ impl PaymentVerifier {
                     "EIP-3009 signer mismatch: authorization from {from:#x}, signature by {recovered:#x}"
                 ),
             ));
+        }
+
+        // ── Nonce deduplication (CRITICAL-2) ──────────────────────────────────
+        // EIP-3009 nonces must be unique per token contract. Record the nonce on
+        // first acceptance and reject any replay within this verifier's lifetime.
+        // Production deployments with multiple gateway processes should replace
+        // this in-memory set with a Redis store keyed on {token}:{nonce}.
+        let nonce_key = format!("{token_address:#x}:{}", hex::encode(nonce_b32));
+        {
+            let mut nonces = self
+                .used_nonces
+                .lock()
+                .map_err(|_| GatewayError::Internal("nonce store lock poisoned".to_string()))?;
+            if nonces.contains(&nonce_key) {
+                return Ok(invalid_result(
+                    from,
+                    token_address,
+                    amount,
+                    amount_usd,
+                    "EIP-3009 nonce already used".to_string(),
+                ));
+            }
+            nonces.insert(nonce_key);
         }
 
         Ok(VerificationResult {
@@ -909,19 +943,14 @@ mod tests {
         assert!(result.invalidation_reason.is_some());
     }
 
-    // ── CRITICAL-2 exploit proof ─────────────────────────────────────────────
-    // Demonstrates that verify_eip3009 accepts the same nonce more than once.
-    // The function reads auth.nonce but never records it, so the identical
-    // authorization can be submitted repeatedly within its validity window.
+    // ── CRITICAL-2 regression guard ───────────────────────────────────────────
+    // Proves that verify_eip3009 rejects the second use of any nonce within the
+    // same PaymentVerifier instance. The nonce is recorded on the first valid
+    // call and the identical authorization is refused on the second call.
     //
-    // This test PASSES when C-2 is present and FAILS when it is fixed.
-    // To fix: record the nonce on first acceptance and return an invalidation
-    // result (not an error) on any subsequent call with the same nonce.
-    //
-    // Note: since C-1 is now fixed, this test generates a real EIP-712 signature
-    // using Hardhat dev key #1 (widely published, never used for real funds).
+    // This test FAILS when C-2 is re-introduced and PASSES when it is fixed.
     #[test]
-    fn critical2_eip3009_same_nonce_accepted_twice() {
+    fn critical2_eip3009_same_nonce_rejected_on_replay() {
         use std::time::{SystemTime, UNIX_EPOCH};
 
         let now = SystemTime::now()
@@ -958,20 +987,24 @@ mod tests {
         assert!(first.valid, "first call should be accepted with a valid signature");
 
         // Second call — same nonce, same authorization, same verifier instance.
-        // BUG: this should return valid = false with an invalidation_reason of
-        // "nonce already used" (or similar). Instead it returns valid = true,
-        // proving the verifier carries no nonce state between calls.
+        // C-2 FIXED: the nonce was recorded on the first call; the second call
+        // must be rejected with an "already used" invalidation reason.
         let second = verifier
             .verify_eip3009(&auth, &signature, usdc_address(), required_usd)
             .expect("second verify_eip3009 should not error");
 
         assert!(
-            second.valid,
-            "CRITICAL-2: nonce was rejected on second use — bug may be fixed"
+            !second.valid,
+            "C-2 regression: second use of the same nonce must be rejected"
         );
         assert!(
-            second.invalidation_reason.is_none(),
-            "CRITICAL-2: nonce replay was flagged — bug may be fixed"
+            second
+                .invalidation_reason
+                .as_deref()
+                .unwrap_or("")
+                .contains("nonce"),
+            "rejection reason must mention the nonce; got: {:?}",
+            second.invalidation_reason
         );
     }
 
