@@ -361,8 +361,8 @@ impl PaymentVerifier {
 
         // Parse EIP-3009 nonce as bytes32 (left-padded)
         let nonce_hex = auth.nonce.strip_prefix("0x").unwrap_or(&auth.nonce);
-        let nonce_bytes =
-            hex::decode(nonce_hex).map_err(|_| GatewayError::Payment("Invalid nonce hex".to_string()))?;
+        let nonce_bytes = hex::decode(nonce_hex)
+            .map_err(|_| GatewayError::Payment("Invalid nonce hex".to_string()))?;
         if nonce_bytes.len() > 32 {
             return Ok(invalid_result(
                 from,
@@ -720,7 +720,10 @@ mod tests {
             )
             .expect("verification should return result");
 
-        assert!(!result.valid, "garbage signature must be rejected after C-1 fix");
+        assert!(
+            !result.valid,
+            "garbage signature must be rejected after C-1 fix"
+        );
         assert!(result.invalidation_reason.is_some());
     }
 
@@ -873,8 +876,7 @@ mod tests {
             value: "5000000".to_string(),
             valid_after: now - 60,
             valid_before: now + 3600,
-            nonce: "0x0000000000000000000000000000000000000000000000000000000000000001"
-                .to_string(),
+            nonce: "0x0000000000000000000000000000000000000000000000000000000000000001".to_string(),
         };
 
         let result = verifier
@@ -961,8 +963,7 @@ mod tests {
         let verifier = PaymentVerifier::new(gateway_address(), vec![usdc_address()]);
 
         // Hardhat dev account #1: address derived from this key is auth.from.
-        const KEY_C2: &str =
-            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+        const KEY_C2: &str = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
         // Fixed nonce — "c2" bytes are a mnemonic for CRITICAL-2.
         let auth = EIP3009Authorization {
@@ -971,8 +972,7 @@ mod tests {
             value: "5000000".to_string(), // 5 USDC raw (6 decimals) = $5
             valid_after: now - 60,
             valid_before: now + 3600,
-            nonce: "0xc2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"
-                .to_string(),
+            nonce: "0xc2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2".to_string(),
         };
         let required_usd = Decimal::from_str("1.0").unwrap();
 
@@ -984,7 +984,10 @@ mod tests {
             .verify_eip3009(&auth, &signature, usdc_address(), required_usd)
             .expect("first verify_eip3009 should not error");
 
-        assert!(first.valid, "first call should be accepted with a valid signature");
+        assert!(
+            first.valid,
+            "first call should be accepted with a valid signature"
+        );
 
         // Second call — same nonce, same authorization, same verifier instance.
         // C-2 FIXED: the nonce was recorded on the first call; the second call
@@ -1018,8 +1021,8 @@ mod tests {
     ) -> String {
         use alloy::dyn_abi::Eip712Domain;
         use alloy::primitives::{U256, keccak256};
-        use alloy::signers::local::PrivateKeySigner;
         use alloy::signers::SignerSync;
+        use alloy::signers::local::PrivateKeySigner;
         use alloy::sol_types::SolValue;
         use std::borrow::Cow;
 
@@ -1067,7 +1070,9 @@ mod tests {
         digest_bytes[34..66].copy_from_slice(struct_hash.as_slice());
         let digest = keccak256(digest_bytes);
 
-        let sig = signer.sign_hash_sync(&digest).expect("signing must succeed");
+        let sig = signer
+            .sign_hash_sync(&digest)
+            .expect("signing must succeed");
         format!("0x{}", hex::encode(sig.as_bytes()))
     }
 }
