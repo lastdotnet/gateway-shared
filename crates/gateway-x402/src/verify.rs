@@ -1,7 +1,12 @@
 use crate::types::{EIP3009Authorization, PaymentSignatureHeader};
-use alloy::primitives::{Address, U256};
+use alloy::{
+    dyn_abi::Eip712Domain,
+    primitives::{Address, Signature as PrimitiveSignature, U256, keccak256},
+    sol_types::SolValue,
+};
 use gateway_common::{GatewayError, GatewayResult, TOKEN_REGISTRY, token_amount_to_usd};
 use rust_decimal::Decimal;
+use std::borrow::Cow;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -229,7 +234,7 @@ impl PaymentVerifier {
     pub fn verify_eip3009(
         &self,
         auth: &EIP3009Authorization,
-        _signature: &str,
+        signature: &str,
         token_address: Address,
         required_amount_usd: Decimal,
     ) -> GatewayResult<VerificationResult> {
@@ -301,6 +306,132 @@ impl PaymentVerifier {
             ));
         }
 
+        // ── Cryptographic signature verification (EIP-712 / EIP-3009) ─────────
+        // EIP-3009 signatures are standard secp256k1 compact: r (32) || s (32) || v (1)
+        let sig_hex = signature.strip_prefix("0x").unwrap_or(signature);
+        let sig_bytes = match hex::decode(sig_hex) {
+            Ok(b) if b.len() == 65 => b,
+            Ok(b) => {
+                return Ok(invalid_result(
+                    from,
+                    token_address,
+                    amount,
+                    amount_usd,
+                    format!(
+                        "Invalid signature length: expected 65 bytes, got {}",
+                        b.len()
+                    ),
+                ));
+            }
+            Err(_) => {
+                return Ok(invalid_result(
+                    from,
+                    token_address,
+                    amount,
+                    amount_usd,
+                    "Invalid signature: not valid hex".to_string(),
+                ));
+            }
+        };
+        let mut raw = [0u8; 65];
+        raw.copy_from_slice(&sig_bytes);
+        let prim_sig = match PrimitiveSignature::from_raw_array(&raw) {
+            Ok(s) => s,
+            Err(_) => {
+                return Ok(invalid_result(
+                    from,
+                    token_address,
+                    amount,
+                    amount_usd,
+                    "Invalid signature encoding".to_string(),
+                ));
+            }
+        };
+
+        // Parse EIP-3009 nonce as bytes32 (left-padded)
+        let nonce_hex = auth.nonce.strip_prefix("0x").unwrap_or(&auth.nonce);
+        let nonce_bytes =
+            hex::decode(nonce_hex).map_err(|_| GatewayError::Payment("Invalid nonce hex".to_string()))?;
+        if nonce_bytes.len() > 32 {
+            return Ok(invalid_result(
+                from,
+                token_address,
+                amount,
+                amount_usd,
+                "Nonce exceeds 32 bytes".to_string(),
+            ));
+        }
+        let mut nonce_b32 = [0u8; 32];
+        nonce_b32[32 - nonce_bytes.len()..].copy_from_slice(&nonce_bytes);
+        let nonce_fixed: alloy::primitives::FixedBytes<32> = nonce_b32.into();
+
+        // Look up the EIP-712 domain for this token (name + version from contract)
+        let (domain_name, domain_version) = match token_eip712_domain(token_address) {
+            Some(p) => p,
+            None => {
+                return Err(GatewayError::Payment(format!(
+                    "EIP-712 domain not configured for token {token_address}"
+                )));
+            }
+        };
+
+        // TransferWithAuthorization struct hash (EIP-3009 §5)
+        const TYPEHASH_INPUT: &[u8] = b"TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)";
+        let type_hash = keccak256(TYPEHASH_INPUT);
+        let struct_hash = keccak256(
+            (
+                type_hash,
+                from,
+                to,
+                amount,
+                U256::from(auth.valid_after),
+                U256::from(auth.valid_before),
+                nonce_fixed,
+            )
+                .abi_encode(),
+        );
+
+        // EIP-712 domain separator for this token on HyperEVM (chain 999)
+        let domain = Eip712Domain {
+            name: Some(Cow::Borrowed(domain_name)),
+            version: Some(Cow::Borrowed(domain_version)),
+            chain_id: Some(U256::from(999u64)),
+            verifying_contract: Some(token_address),
+            salt: None,
+        };
+        let mut digest_bytes = [0u8; 66];
+        digest_bytes[0] = 0x19;
+        digest_bytes[1] = 0x01;
+        digest_bytes[2..34].copy_from_slice(domain.separator().as_slice());
+        digest_bytes[34..66].copy_from_slice(struct_hash.as_slice());
+        let digest = keccak256(digest_bytes);
+
+        // Recover the signer and assert it matches auth.from
+        let recovered = match prim_sig.recover_address_from_prehash(&digest) {
+            Ok(addr) => addr,
+            Err(_) => {
+                return Ok(invalid_result(
+                    from,
+                    token_address,
+                    amount,
+                    amount_usd,
+                    "EIP-3009 signature recovery failed".to_string(),
+                ));
+            }
+        };
+
+        if recovered != from {
+            return Ok(invalid_result(
+                from,
+                token_address,
+                amount,
+                amount_usd,
+                format!(
+                    "EIP-3009 signer mismatch: authorization from {from:#x}, signature by {recovered:#x}"
+                ),
+            ));
+        }
+
         Ok(VerificationResult {
             valid: true,
             payer: from,
@@ -317,6 +448,17 @@ fn token_decimals(token_address: Address) -> Option<u8> {
         .values()
         .find(|token| token.address == token_address)
         .map(|token| token.decimals)
+}
+
+/// Returns the EIP-712 domain (name, version) for known EIP-3009 tokens on HyperEVM.
+/// These values must match the token contract's `DOMAIN_SEPARATOR` exactly.
+fn token_eip712_domain(token: Address) -> Option<(&'static str, &'static str)> {
+    use alloy::primitives::address;
+    match token {
+        // Circle CCTP USDC deployed on HyperEVM
+        t if t == address!("b88339cb7199b77e23db6e890353e22632ba630f") => Some(("USD Coin", "2")),
+        _ => None,
+    }
 }
 
 fn parse_address(value: &str, error: &str) -> GatewayResult<Address> {
@@ -523,7 +665,10 @@ mod tests {
     }
 
     #[test]
-    fn verify_payment_dispatches_eip3009_and_accepts_valid_auth() {
+    fn verify_payment_dispatches_eip3009_and_rejects_invalid_signature() {
+        // payment_header uses a garbage 65-byte signature (0x11 * 65).
+        // After the C-1 fix, verify_eip3009 recovers a signer from that signature
+        // (or fails parsing) — either way the recovered address ≠ auth.from → rejected.
         let verifier = PaymentVerifier::new(gateway_address(), vec![usdc_address()]);
         let header = payment_header(
             "eip3009",
@@ -541,11 +686,8 @@ mod tests {
             )
             .expect("verification should return result");
 
-        assert!(result.valid);
-        assert_eq!(
-            result.payer,
-            Address::from_str(&payer_address()).expect("payer address")
-        );
+        assert!(!result.valid, "garbage signature must be rejected after C-1 fix");
+        assert!(result.invalidation_reason.is_some());
     }
 
     #[test]
@@ -672,13 +814,15 @@ mod tests {
         assert!(result.invalidation_reason.is_none());
     }
 
-    // ── CRITICAL-1 exploit proof ─────────────────────────────────────────────
-    // Demonstrates that the eip3009 scheme accepts any payment claim without
-    // verifying the cryptographic signature. The _signature parameter in
-    // verify_eip3009 is intentionally unused (prefixed with _), so any value
-    // passes — including "0x00" or an empty string.
+    // ── CRITICAL-1 regression guard ──────────────────────────────────────────
+    // Proves that verify_eip3009 rejects a forged authorization whose signature
+    // is the 1-byte garbage value "0x00". Before the C-1 fix the _signature
+    // parameter was unused and this test passed with result.valid == true.
+    // After the fix the signature-length check fires and returns valid == false.
+    //
+    // This test FAILS when the bug is re-introduced and PASSES when it is fixed.
     #[test]
-    fn critical1_forged_eip3009_accepted_without_valid_signature() {
+    fn critical1_forged_eip3009_rejected_with_garbage_signature() {
         use crate::types::EIP3009Authorization;
         use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -689,13 +833,10 @@ mod tests {
 
         let verifier = PaymentVerifier::new(gateway_address(), vec![usdc_address()]);
 
-        // Completely fabricated authorization: attacker supplies any `from`
-        // address they want to impersonate, a garbage signature, and valid
-        // timing fields. No on-chain funds are needed.
         let forged_auth = EIP3009Authorization {
             from: "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".to_string(),
             to: GATEWAY_ADDRESS.to_string(),
-            value: "5000000".to_string(), // 5 USDC raw (6 decimals) = $5
+            value: "5000000".to_string(),
             valid_after: now - 60,
             valid_before: now + 3600,
             nonce: "0x0000000000000000000000000000000000000000000000000000000000000001"
@@ -705,30 +846,31 @@ mod tests {
         let result = verifier
             .verify_eip3009(
                 &forged_auth,
-                "0x00", // garbage — should be rejected, never checked
+                "0x00", // 1-byte garbage — must be rejected at length check
                 usdc_address(),
                 Decimal::from_str("1.0").unwrap(),
             )
-            .expect("verify_eip3009 should not error");
+            .expect("verify_eip3009 should not return Err");
 
-        // BUG: this assertion proves the vulnerability.
-        // A forged authorization with no valid signature is accepted.
         assert!(
-            result.valid,
-            "CRITICAL-1: forged eip3009 payment was rejected — bug may be fixed"
+            !result.valid,
+            "C-1 regression: garbage signature must be rejected"
         );
-        assert_eq!(
-            format!("{:#x}", result.payer),
-            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-            "payer address must match attacker-supplied `from` field"
+        assert!(
+            result
+                .invalidation_reason
+                .as_deref()
+                .unwrap_or("")
+                .contains("signature"),
+            "rejection reason must mention the signature problem; got: {:?}",
+            result.invalidation_reason
         );
-        assert!(result.invalidation_reason.is_none());
     }
 
-    // Same exploit through the public verify_payment dispatch path —
-    // confirms the scheme routing in verify_payment reaches verify_eip3009.
+    // Regression guard through the public verify_payment dispatch path —
+    // confirms the scheme routing in verify_payment reaches the fixed verify_eip3009.
     #[test]
-    fn critical1_forged_eip3009_accepted_via_verify_payment_dispatch() {
+    fn critical1_forged_eip3009_rejected_via_verify_payment_dispatch() {
         use std::time::{SystemTime, UNIX_EPOCH};
 
         let now = SystemTime::now()
@@ -754,18 +896,17 @@ mod tests {
             None,
         );
 
+        // payment_header uses signature "0x11" * 65; after C-1 fix the recovered
+        // signer won't match `from` so the result is invalid.
         let result = verifier
             .verify_payment(&header, Decimal::from_str("1.0").unwrap())
             .expect("verify_payment should not error");
 
         assert!(
-            result.valid,
-            "CRITICAL-1: forged eip3009 via dispatch was rejected — bug may be fixed"
+            !result.valid,
+            "C-1 regression: forged eip3009 via dispatch must be rejected"
         );
-        assert_eq!(
-            format!("{:#x}", result.payer),
-            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
-        );
+        assert!(result.invalidation_reason.is_some());
     }
 
     // ── CRITICAL-2 exploit proof ─────────────────────────────────────────────
@@ -773,12 +914,14 @@ mod tests {
     // The function reads auth.nonce but never records it, so the identical
     // authorization can be submitted repeatedly within its validity window.
     //
-    // This test PASSES when the bug is present and FAILS when it is fixed.
+    // This test PASSES when C-2 is present and FAILS when it is fixed.
     // To fix: record the nonce on first acceptance and return an invalidation
     // result (not an error) on any subsequent call with the same nonce.
+    //
+    // Note: since C-1 is now fixed, this test generates a real EIP-712 signature
+    // using Hardhat dev key #1 (widely published, never used for real funds).
     #[test]
     fn critical2_eip3009_same_nonce_accepted_twice() {
-        use crate::types::EIP3009Authorization;
         use std::time::{SystemTime, UNIX_EPOCH};
 
         let now = SystemTime::now()
@@ -787,6 +930,10 @@ mod tests {
             .as_secs();
 
         let verifier = PaymentVerifier::new(gateway_address(), vec![usdc_address()]);
+
+        // Hardhat dev account #1: address derived from this key is auth.from.
+        const KEY_C2: &str =
+            "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
         // Fixed nonce — "c2" bytes are a mnemonic for CRITICAL-2.
         let auth = EIP3009Authorization {
@@ -800,19 +947,22 @@ mod tests {
         };
         let required_usd = Decimal::from_str("1.0").unwrap();
 
+        // Generate a real EIP-712 signature (C-1 is fixed so "0x00" no longer works).
+        let signature = sign_eip3009_for_test(&auth, usdc_address(), KEY_C2);
+
         // First call — expected to succeed.
         let first = verifier
-            .verify_eip3009(&auth, "0x00", usdc_address(), required_usd)
+            .verify_eip3009(&auth, &signature, usdc_address(), required_usd)
             .expect("first verify_eip3009 should not error");
 
-        assert!(first.valid, "first call should be accepted");
+        assert!(first.valid, "first call should be accepted with a valid signature");
 
         // Second call — same nonce, same authorization, same verifier instance.
         // BUG: this should return valid = false with an invalidation_reason of
         // "nonce already used" (or similar). Instead it returns valid = true,
         // proving the verifier carries no nonce state between calls.
         let second = verifier
-            .verify_eip3009(&auth, "0x00", usdc_address(), required_usd)
+            .verify_eip3009(&auth, &signature, usdc_address(), required_usd)
             .expect("second verify_eip3009 should not error");
 
         assert!(
@@ -823,5 +973,68 @@ mod tests {
             second.invalidation_reason.is_none(),
             "CRITICAL-2: nonce replay was flagged — bug may be fixed"
         );
+    }
+
+    /// Compute and sign an EIP-3009 TransferWithAuthorization digest for testing.
+    /// Uses the same domain + struct-hash logic as verify_eip3009 so the
+    /// resulting signature will pass the C-1 check.
+    fn sign_eip3009_for_test(
+        auth: &EIP3009Authorization,
+        token_address: Address,
+        private_key: &str,
+    ) -> String {
+        use alloy::dyn_abi::Eip712Domain;
+        use alloy::primitives::{U256, keccak256};
+        use alloy::signers::local::PrivateKeySigner;
+        use alloy::signers::SignerSync;
+        use alloy::sol_types::SolValue;
+        use std::borrow::Cow;
+
+        let signer: PrivateKeySigner = private_key.parse().expect("valid private key");
+
+        let from = Address::from_str(&auth.from).expect("valid from address");
+        let to = Address::from_str(&auth.to).expect("valid to address");
+        let amount = U256::from_str(&auth.value).expect("valid amount");
+
+        let nonce_hex = auth.nonce.strip_prefix("0x").unwrap_or(&auth.nonce);
+        let nonce_bytes = hex::decode(nonce_hex).expect("valid nonce hex");
+        let mut nonce_b32 = [0u8; 32];
+        nonce_b32[32 - nonce_bytes.len()..].copy_from_slice(&nonce_bytes);
+        let nonce_fixed: alloy::primitives::FixedBytes<32> = nonce_b32.into();
+
+        const TYPEHASH_INPUT: &[u8] = b"TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)";
+        let type_hash = keccak256(TYPEHASH_INPUT);
+        let struct_hash = keccak256(
+            (
+                type_hash,
+                from,
+                to,
+                amount,
+                U256::from(auth.valid_after),
+                U256::from(auth.valid_before),
+                nonce_fixed,
+            )
+                .abi_encode(),
+        );
+
+        let (domain_name, domain_version) = super::token_eip712_domain(token_address)
+            .expect("token must have EIP-712 domain configured");
+        let domain = Eip712Domain {
+            name: Some(Cow::Borrowed(domain_name)),
+            version: Some(Cow::Borrowed(domain_version)),
+            chain_id: Some(U256::from(999u64)),
+            verifying_contract: Some(token_address),
+            salt: None,
+        };
+
+        let mut digest_bytes = [0u8; 66];
+        digest_bytes[0] = 0x19;
+        digest_bytes[1] = 0x01;
+        digest_bytes[2..34].copy_from_slice(domain.separator().as_slice());
+        digest_bytes[34..66].copy_from_slice(struct_hash.as_slice());
+        let digest = keccak256(digest_bytes);
+
+        let sig = signer.sign_hash_sync(&digest).expect("signing must succeed");
+        format!("0x{}", hex::encode(sig.as_bytes()))
     }
 }
