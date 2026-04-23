@@ -164,10 +164,7 @@ pub fn sign_gateway_envelope(envelope: &mut GatewayEnvelope, secret: &[u8]) {
 /// Verify an envelope's HMAC and expiry. Constant-time compare via
 /// `Mac::verify_slice`. Does NOT de-dupe nonces — callers enforce replay
 /// protection.
-pub fn verify_gateway_hmac(
-    envelope: &GatewayEnvelope,
-    secret: &[u8],
-) -> Result<(), EnvelopeError> {
+pub fn verify_gateway_hmac(envelope: &GatewayEnvelope, secret: &[u8]) -> Result<(), EnvelopeError> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
