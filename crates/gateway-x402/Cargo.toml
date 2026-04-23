@@ -15,3 +15,7 @@ tokio.workspace = true
 tracing.workspace = true
 rust_decimal.workspace = true
 hex.workspace = true
+# R-5: envelope HMAC verification (signed gateway responses).
+hmac = "0.12"
+sha2 = "0.10"
+thiserror = "2"
